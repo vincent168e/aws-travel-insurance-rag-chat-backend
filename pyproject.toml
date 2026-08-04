@@ -1,0 +1,20 @@
+[project]
+name = "travel-insurance-rag-chat-backend"
+version = "0.1.0"
+description = "Blue Cross Travel Insurance RAG Backend"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.28.0",
+    "langchain>=0.1.11",
+    "langgraph>=0.0.26",
+    "langchain-google-genai>=1.0.1",
+    "pinecone>=3.1.1",
+    "pydantic>=2.6.4",
+    "python-dotenv>=1.0.1",
+    "pypdf>=4.1.0",
+    "langchain-community>=0.4.2",
+    "cloudinary>=1.44.2",
+    "python-multipart>=0.0.32",
+]
