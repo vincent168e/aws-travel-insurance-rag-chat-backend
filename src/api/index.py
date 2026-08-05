@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage
 from src.schemas import ChatRequest, ChatResponse
 from src.graph.workflow import app_graph
 from src.config import settings
-from src.services.img_storage import upload_multiple_files_to_cloudinary
+from src.services.img_storage import upload_multiple_files_to_s3
 
 
 logging.basicConfig(level=logging.INFO)
@@ -68,13 +68,16 @@ async def chat_endpoint(payload: ChatRequest):
 
 
 @app.post("/api/upload")
-async def upload_images_endpoint(files: List[UploadFile] = File(...)):
+async def upload_images_endpoint(
+    files: List[UploadFile] = File(...),
+    thread_id: str = "unknown",
+):
     """
-    Accepts incoming multi-part binary file streams from clients, delegates 
-    processing to the refactored storage service, and returns secure CDN links.
+    Accept incoming multi-part binary file streams, store them in the private
+    S3 claims bucket, and return time-limited pre-signed URLs for downstream
+    OCR processing.
     """
-    # The endpoint remains completely stateless and handles only request/response mapping
-    urls = upload_multiple_files_to_cloudinary(files)
+    urls = upload_multiple_files_to_s3(files, thread_id=thread_id)
     return {"image_urls": urls}
 
 

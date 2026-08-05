@@ -1,8 +1,9 @@
 import sys
 from pathlib import Path
 from langchain_core.messages import HumanMessage
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
+
+from src.database.dynamodb_checkpointer import create_checkpointer
 
 from src.graph.state import AgentState
 from src.agents.emergency_escalation import emergency_escalation_node
@@ -70,8 +71,8 @@ workflow.add_conditional_edges(
 
 workflow.add_edge("claim_validation", END)
 
-# 4. Compile State Machine Instance with Local Memory Buffer
-memory = MemorySaver()
+# 4. Compile State Machine with DynamoDB (prod) or Memory (local dev)
+memory = create_checkpointer()
 app_graph = workflow.compile(checkpointer=memory)
 
 
