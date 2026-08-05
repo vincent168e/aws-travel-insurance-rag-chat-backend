@@ -1,0 +1,112 @@
+name: Deploy to AWS ECS Fargate
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        required: true
+        type: choice
+        default: "dev"
+        options: ["dev", "staging", "prod"]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: dev-travel-insurance-backend
+  ECS_SERVICE: dev-travel-insurance-service
+  ECS_CLUSTER: dev-travel-insurance-cluster
+  ENV_NAME: dev
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build, Tag, and Push Docker Image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Deploy Infrastructure (CDK)
+        working-directory: infra
+        run: |
+          pip install -r requirements.txt
+          cdk deploy --require-approval never -c env=${{ env.ENV_NAME }}
+
+      - name: Force ECS Service Redeployment
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+      - name: Wait for ECS Deployment to Stabilize
+        run: |
+          aws ecs wait services-stable \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE \
+            --region $AWS_REGION
+
+      - name: Verify Health Endpoint
+        run: |
+          TASK_ARN=$(aws ecs list-tasks \
+            --cluster $ECS_CLUSTER \
+            --service-name $ECS_SERVICE \
+            --region $AWS_REGION \
+            --query 'taskArns[0]' --output text)
+
+          ENI_ID=$(aws ecs describe-tasks \
+            --cluster $ECS_CLUSTER \
+            --tasks $TASK_ARN \
+            --region $AWS_REGION \
+            --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text)
+
+          PUBLIC_IP=$(aws ec2 describe-network-interfaces \
+            --network-interface-ids $ENI_ID \
+            --region $AWS_REGION \
+            --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
+
+          echo "Service public IP: $PUBLIC_IP"
+
+          for i in {1..10}; do
+            STATUS=$(curl -s -o /dev/null -w '%{http_code}' "http://$PUBLIC_IP:8000/api/health" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed (HTTP $STATUS)"
+              exit 0
+            fi
+            echo "Attempt $i/10: HTTP $STATUS — retrying..."
+            sleep 6
+          done
+          echo "Health check failed after 10 attempts"
+          exit 1
