@@ -14,3 +14,19 @@ uv.lock
 
 # Environment variables
 .env
+
+# macOS
+.DS_Store
+
+# CDK synthesis output
+infra/cdk.out/
+
+# PDFs (stored in S3, not in git)
+*.pdf
+
+# IDE / Editor
+.vscode/
+
+# Temp files
+tmp/
+*.log

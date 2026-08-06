@@ -45,18 +45,12 @@ class TravelInsuranceStack(Stack):
         prefix = f"{env_name}-travel-insurance"
 
         # ==================================================================
-        # 1. ECR Repository
+        # 1. ECR Repository (lookup existing, created manually pre-deploy)
         # ==================================================================
-        ecr_repo = ecr.Repository(
+        ecr_repo = ecr.Repository.from_repository_name(
             self,
             f"{prefix}-ecr-repo",
             repository_name=f"{prefix}-backend",
-            removal_policy=RemovalPolicy.DESTROY,
-            empty_on_delete=True,
-            image_scan_on_push=True,
-            lifecycle_rules=[
-                ecr.LifecycleRule(max_image_count=10, description="Keep last 10 images")
-            ],
         )
 
         # ==================================================================
@@ -104,14 +98,12 @@ class TravelInsuranceStack(Stack):
         )
 
         # ==================================================================
-        # 4. Secrets Manager — API Keys
+        # 4. Secrets Manager — API Keys (lookup existing, managed manually)
         # ==================================================================
-        api_secret = secretsmanager.Secret(
+        api_secret = secretsmanager.Secret.from_secret_name_v2(
             self,
             f"{prefix}-api-secret",
             secret_name=f"{prefix}/api-keys",
-            description="GEMINI_API_KEY, PINECONE_API_KEY, PINECONE_INDEX_NAME",
-            removal_policy=RemovalPolicy.DESTROY,
         )
 
         # ==================================================================
