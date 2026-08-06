@@ -213,25 +213,22 @@ class TravelInsuranceStack(Stack):
         )
 
         # ==================================================================
-        # 8. GitHub Actions OIDC Provider & Deployment Role
+        # 8. GitHub Actions OIDC Deployment Role
         #    Allows GitHub Actions to assume this role via OIDC (no static
         #    access keys). The role's permissions mirror github-actions-policy.json.
         #
-        #    The OIDC provider is a singleton per AWS account — we look it up
-        #    by its well-known ARN instead of creating it.
+        #    The OIDC provider is a singleton per AWS account. We use
+        #    FederatedPrincipal directly with the well-known ARN to ensure
+        #    the trust policy is synthesized correctly.
         # ==================================================================
-        github_oidc = iam.OpenIdConnectProvider.from_open_id_connect_provider_arn(
-            self,
-            f"{prefix}-github-oidc",
-            open_id_connect_provider_arn=f"arn:aws:iam::{self.account}:oidc-provider/token.actions.githubusercontent.com",
-        )
+        github_oidc_arn = f"arn:aws:iam::{self.account}:oidc-provider/token.actions.githubusercontent.com"
 
         github_actions_role = iam.Role(
             self,
             f"{prefix}-github-actions-role",
             role_name=f"{prefix}-github-actions-deploy",
-            assumed_by=iam.OpenIdConnectPrincipal(
-                github_oidc,
+            assumed_by=iam.FederatedPrincipal(
+                github_oidc_arn,
                 conditions={
                     "StringEquals": {
                         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
@@ -240,6 +237,7 @@ class TravelInsuranceStack(Stack):
                         "token.actions.githubusercontent.com:sub": "repo:vincent168e/aws-travel-insurance-rag-chat-backend:*",
                     },
                 },
+                assume_role_action="sts:AssumeRoleWithWebIdentity",
             ),
             inline_policies={
                 "GitHubActionsDeployPolicy": iam.PolicyDocument(
