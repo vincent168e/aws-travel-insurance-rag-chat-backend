@@ -213,7 +213,183 @@ class TravelInsuranceStack(Stack):
         )
 
         # ==================================================================
-        # 8. ECS Fargate Task Definition
+        # 8. GitHub Actions OIDC Provider & Deployment Role
+        #    Allows GitHub Actions to assume this role via OIDC (no static
+        #    access keys). The role's permissions mirror github-actions-policy.json.
+        #
+        #    The OIDC provider is a singleton per AWS account — we look it up
+        #    by its well-known ARN instead of creating it.
+        # ==================================================================
+        github_oidc = iam.OpenIdConnectProvider.from_open_id_connect_provider_arn(
+            self,
+            f"{prefix}-github-oidc",
+            open_id_connect_provider_arn=f"arn:aws:iam::{self.account}:oidc-provider/token.actions.githubusercontent.com",
+        )
+
+        github_actions_role = iam.Role(
+            self,
+            f"{prefix}-github-actions-role",
+            role_name=f"{prefix}-github-actions-deploy",
+            assumed_by=iam.OpenIdConnectPrincipal(
+                github_oidc,
+                conditions={
+                    "StringEquals": {
+                        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+                    },
+                    "StringLike": {
+                        "token.actions.githubusercontent.com:sub": "repo:vincent168e/aws-travel-insurance-rag-chat-backend:*",
+                    },
+                },
+            ),
+            inline_policies={
+                "GitHubActionsDeployPolicy": iam.PolicyDocument(
+                    statements=[
+                        # --- ECR ---
+                        iam.PolicyStatement(
+                            actions=[
+                                "ecr:GetAuthorizationToken",
+                                "ecr:BatchCheckLayerAvailability",
+                                "ecr:GetDownloadUrlForLayer",
+                                "ecr:BatchGetImage",
+                                "ecr:PutImage",
+                                "ecr:InitiateLayerUpload",
+                                "ecr:UploadLayerPart",
+                                "ecr:CompleteLayerUpload",
+                                "ecr:DescribeRepositories",
+                            ],
+                            resources=["*"],
+                        ),
+                        # --- ECS ---
+                        iam.PolicyStatement(
+                            actions=[
+                                "ecs:UpdateService",
+                                "ecs:DescribeServices",
+                                "ecs:ListServices",
+                                "ecs:ListTasks",
+                                "ecs:DescribeTasks",
+                                "ecs:DescribeTaskDefinition",
+                                "ecs:DescribeClusters",
+                            ],
+                            resources=["*"],
+                        ),
+                        # --- CloudFormation (CDK) ---
+                        iam.PolicyStatement(
+                            actions=[
+                                "cloudformation:CreateStack",
+                                "cloudformation:UpdateStack",
+                                "cloudformation:DeleteStack",
+                                "cloudformation:DescribeStacks",
+                                "cloudformation:DescribeStackEvents",
+                                "cloudformation:DescribeStackResources",
+                                "cloudformation:DescribeChangeSet",
+                                "cloudformation:CreateChangeSet",
+                                "cloudformation:ExecuteChangeSet",
+                                "cloudformation:DeleteChangeSet",
+                                "cloudformation:GetTemplate",
+                                "cloudformation:ValidateTemplate",
+                            ],
+                            resources=[
+                                f"arn:aws:cloudformation:{self.region}:{self.account}:stack/TravelInsurance-*/*",
+                                f"arn:aws:cloudformation:{self.region}:{self.account}:stack/CDKToolkit/*",
+                            ],
+                        ),
+                        # --- S3 (CDK assets) ---
+                        iam.PolicyStatement(
+                            actions=[
+                                "s3:PutObject",
+                                "s3:GetObject",
+                                "s3:DeleteObject",
+                                "s3:ListBucket",
+                                "s3:CreateBucket",
+                                "s3:DeleteBucket",
+                                "s3:PutBucketPolicy",
+                                "s3:GetBucketPolicy",
+                                "s3:DeleteBucketPolicy",
+                                "s3:PutEncryptionConfiguration",
+                                "s3:PutBucketVersioning",
+                                "s3:PutBucketPublicAccessBlock",
+                                "s3:PutBucketCORS",
+                                "s3:PutLifecycleConfiguration",
+                            ],
+                            resources=[
+                                "arn:aws:s3:::cdk-*",
+                                f"arn:aws:s3:::{prefix}-*",
+                            ],
+                        ),
+                        # --- EC2 Networking ---
+                        iam.PolicyStatement(
+                            actions=[
+                                "ec2:DescribeNetworkInterfaces",
+                                "ec2:DescribeVpcs",
+                                "ec2:DescribeSubnets",
+                                "ec2:DescribeSecurityGroups",
+                                "ec2:DescribeRouteTables",
+                                "ec2:DescribeInternetGateways",
+                                "ec2:DescribeAvailabilityZones",
+                                "ec2:CreateSecurityGroup",
+                                "ec2:DeleteSecurityGroup",
+                                "ec2:AuthorizeSecurityGroupIngress",
+                                "ec2:AuthorizeSecurityGroupEgress",
+                                "ec2:RevokeSecurityGroupIngress",
+                                "ec2:RevokeSecurityGroupEgress",
+                                "ec2:CreateVpc",
+                                "ec2:DeleteVpc",
+                                "ec2:CreateSubnet",
+                                "ec2:DeleteSubnet",
+                                "ec2:CreateInternetGateway",
+                                "ec2:DeleteInternetGateway",
+                                "ec2:AttachInternetGateway",
+                                "ec2:DetachInternetGateway",
+                                "ec2:CreateRoute",
+                                "ec2:DeleteRoute",
+                                "ec2:CreateRouteTable",
+                                "ec2:DeleteRouteTable",
+                                "ec2:AssociateRouteTable",
+                                "ec2:DisassociateRouteTable",
+                                "ec2:ModifyVpcAttribute",
+                                "ec2:AllocateAddress",
+                                "ec2:ReleaseAddress",
+                            ],
+                            resources=["*"],
+                        ),
+                        # --- IAM PassRole ---
+                        iam.PolicyStatement(
+                            actions=["iam:PassRole"],
+                            resources=[
+                                f"arn:aws:iam::{self.account}:role/cdk-*",
+                                f"arn:aws:iam::{self.account}:role/{prefix}-*",
+                            ],
+                            conditions={
+                                "StringEquals": {
+                                    "iam:PassedToService": [
+                                        "ecs-tasks.amazonaws.com",
+                                        "lambda.amazonaws.com",
+                                    ]
+                                }
+                            },
+                        ),
+                        # --- IAM Role Management ---
+                        iam.PolicyStatement(
+                            actions=[
+                                "iam:CreateRole",
+                                "iam:DeleteRole",
+                                "iam:GetRole",
+                                "iam:PutRolePolicy",
+                                "iam:DeleteRolePolicy",
+                                "iam:AttachRolePolicy",
+                                "iam:DetachRolePolicy",
+                            ],
+                            resources=[
+                                f"arn:aws:iam::{self.account}:role/{prefix}-*",
+                            ],
+                        ),
+                    ]
+                )
+            },
+        )
+
+        # ==================================================================
+        # 9. ECS Fargate Task Definition
         # ==================================================================
         task_definition = ecs.FargateTaskDefinition(
             self,
@@ -255,8 +431,8 @@ class TravelInsuranceStack(Stack):
         container.add_port_mappings(ecs.PortMapping(container_port=8000))
 
         # ==================================================================
-        # 9. ECS Fargate Service — No ALB, Public IP
-        #    Toggle `enable_load_balancer=True` to add an ALB later.
+        # 10. ECS Fargate Service — No ALB, Public IP
+        #     Toggle `enable_load_balancer=True` to add an ALB later.
         # ==================================================================
         if enable_load_balancer:
             # Future: ALB-backed service
@@ -292,12 +468,13 @@ class TravelInsuranceStack(Stack):
             )
 
         # ==================================================================
-        # 10. Stack Outputs
+        # 11. Stack Outputs
         # ==================================================================
         CfnOutput(self, "ECRRepositoryUri", value=ecr_repo.repository_uri)
         CfnOutput(self, "S3BucketName", value=claim_bucket.bucket_name)
         CfnOutput(self, "DynamoDBTableName", value=state_table.table_name)
         CfnOutput(self, "SecretsManagerArn", value=api_secret.secret_arn)
+        CfnOutput(self, "GitHubActionsRoleArn", value=github_actions_role.role_arn)
         CfnOutput(self, "ECSClusterName", value=ecs_cluster.cluster_name)
         CfnOutput(self, "ECSServiceName", value=f"{prefix}-service")
 

@@ -1,4 +1,5 @@
 {
+  "_comment": "This policy is now managed in CDK (travel_insurance_stack.py, section 8). This JSON file is kept for reference only.",
   "Version": "2012-10-17",
   "Statement": [
     {
