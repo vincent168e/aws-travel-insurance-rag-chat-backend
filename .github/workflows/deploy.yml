@@ -98,10 +98,15 @@ jobs:
             --service-name "$SERVICE_NAME" \
             --region $AWS_REGION \
             --query 'taskArns[0]' --output text)
+
+          ENI_ID=$(aws ecs describe-tasks \
+            --cluster $ECS_CLUSTER \
+            --tasks "$TASK_ARN" \
+            --region $AWS_REGION \
             --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text)
 
           PUBLIC_IP=$(aws ec2 describe-network-interfaces \
-            --network-interface-ids $ENI_ID \
+            --network-interface-ids "$ENI_ID" \
             --region $AWS_REGION \
             --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
 
