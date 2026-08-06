@@ -59,7 +59,7 @@ jobs:
       - name: Deploy Infrastructure (CDK)
         working-directory: infra
         run: |
-          pip install --system -r requirements.txt
+          pip install -r requirements.txt
           npx cdk deploy --require-approval never -c env=${{ env.ENV_NAME }}
 
       - name: Force ECS Service Redeployment
